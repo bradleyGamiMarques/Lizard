@@ -20,14 +20,24 @@
 Thank you for contributing to Lizard!
 Follow these steps to ensure a smooth Pull Request process
 
-1. PR titles should follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g.:
+1. Install the local tooling:
+
+   ```sh
+   yarn install && yarn prepare
+   ```
+
+   `yarn install` pulls in commitlint, and `yarn prepare` installs the git hooks that lint your commit messages. `yarn install` alone does **not** install the hooks — run both.
+
+   Requires [lefthook](https://lefthook.dev/installation/) on your PATH (`brew install lefthook`). Yarn resolves to the pinned 4.x release via corepack.
+
+2. PR titles should follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g.:
 
    `feat(infra): add CloudFormation IaC`
 
    Allowed types: `build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test`
 
-2. As part of the Pull Request process update this README.md file under the Authors heading with the name you would like to be credited under.
-3. Branches should follow the pattern of `dev/<github-account-name>/<conventional-commits-action>/<summary>`
-4. PR's should fill out the pull_request_template — It's generated for you automatically on every PR.
-5. My preference is that all commits are verified and that we keep linear commit history.
+3. As part of the Pull Request process update this README.md file under the Authors heading with the name you would like to be credited under.
+4. Branches should follow the pattern of `dev/<github-account-name>/<conventional-commits-action>/<summary>`
+5. PR's should fill out the pull_request_template — It's generated for you automatically on every PR.
+6. My preference is that all commits are verified and that we keep linear commit history.
 <img width="1200" height="630" alt="image" src="https://github.com/user-attachments/assets/25d8e971-03d8-4b81-95e1-c9269c878c2a" />

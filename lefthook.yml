@@ -1,0 +1,13 @@
+assert_lefthook_installed: true
+
+colors:
+  cyan: '#03EDF9'
+  gray: '#808080'
+  green: '#72F1B8'
+  red: '#FE4450'
+  yellow: '#FEDE5D'
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: yarn commitlint --edit {1}
