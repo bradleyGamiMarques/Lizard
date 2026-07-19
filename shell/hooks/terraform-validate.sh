@@ -99,10 +99,10 @@ for stack in "${stacks[@]}"; do
         -no-color >/dev/null \
       && TF_DATA_DIR="$scratch_data_dir" terraform validate -no-color
   ); then
-    echo "❌ terraform validate failed in ${stack}"
+    echo "terraform validate failed in ${stack} ❌"
     failed_stacks+=("$stack")
   else
-    echo "✅ ${stack} validated"
+    echo "${stack} validated ✅"
   fi
 done
 
