@@ -24,6 +24,33 @@ decide in advance which instances are expendable, by tagging them.
 
 It is a circuit breaker with a blast radius you declare, not a targeted fix.
 
+### It fires once, then stays quiet until next month
+
+**Restarting a stopped instance defeats Lizard until the next billing month.**
+
+EventBridge delivers on the *transition* into `ALARM`, not on the alarm being in
+`ALARM`. And `EstimatedCharges` is a month-to-date running total, so within a
+month it only climbs — once it crosses your threshold the alarm enters `ALARM`
+and stays there until charges reset at the month boundary.
+
+So:
+
+1. Spend crosses the threshold, the alarm transitions, tagged instances stop
+2. Someone starts one again
+3. Spend keeps climbing, but the alarm is already in `ALARM` — no transition, no
+   event, nothing stops it
+4. Lizard re-arms only when the new billing month drops charges back below the
+   threshold
+
+Treat it as a **spent fuse, not a latching switch**. It buys you the moment you
+crossed the line; it does not hold the line.
+
+If you need continuous enforcement, the shape that fits is a scheduled rule
+firing the same runbook on an interval, with the runbook checking alarm state
+before acting. Blocking `ec2:StartInstances` on tagged instances via SCP or IAM
+closes the loophole instead of reacting to it, at the cost of being considerably
+more invasive. Neither is implemented here.
+
 ## Before you start
 
 **1. Enable billing alerts** in the payer account: Billing and Cost Management →
@@ -152,8 +179,6 @@ service actions are required.
 **Keep the IAM `Resource` scoped.** `iam:PutRolePolicy` on `*` would let anyone
 holding this policy grant themselves anything.
 
-Check what you actually have rather than assuming — an SSO permission set named
-`PowerUserAccess` may carry more than that policy:
 
 ```bash
 ARN=$(aws sts get-caller-identity --query Arn --output text)

@@ -2,9 +2,9 @@
 [![Terraform](https://img.shields.io/badge/Terraform-844FBA?logo=terraform&logoColor=fff)](#)
 ![Yarn](https://img.shields.io/badge/yarn-%232C8EBB.svg?style=for-the-badge&logo=yarn&logoColor=white)
 
-Terraform that stops AWS resources when your bill crosses a threshold.
-
-A CloudWatch alarm watches estimated charges. When it fires, EventBridge starts
+## 🌟 Highlights
+- Lizard provides example IaC to stop or terminate AWS resources when billing amounts go over a predefined threshold in CloudWatch Alarms.
+- A CloudWatch alarm watches estimated charges. When it fires, EventBridge starts
 an SSM Automation runbook that stops every running EC2 instance carrying the tag
 `StoppableBy=Lizard`.
 

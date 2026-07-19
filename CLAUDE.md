@@ -226,6 +226,11 @@ run, and none is visible to a mocked test.
   why tag targeting needs a custom runbook rather than `AWS-StopEC2Instance`.
 - **EventBridge fires on the transition into `ALARM`**, not on the state. An
   alarm already in `ALARM` will not re-fire; re-testing needs `OK` → `ALARM`.
+  Combined with `EstimatedCharges` being a month-to-date total that only climbs,
+  this means remediation fires **once per billing month**: restart a stopped
+  instance and nothing stops it again until charges reset at the month boundary.
+  Continuous enforcement would need a scheduled rule re-asserting the runbook, or
+  a policy denying `ec2:StartInstances` on tagged instances. Neither exists yet.
 - **The `awscc` provider calls the Cloud Control API**, so a deploying principal
   needs `cloudcontrol:*` *as well as* the underlying service actions. Neither
   alone is sufficient.
