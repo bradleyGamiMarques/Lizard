@@ -38,6 +38,6 @@ Follow these steps to ensure a smooth Pull Request process
 
 3. As part of the Pull Request process update this README.md file under the Authors heading with the name you would like to be credited under.
 4. Branches should follow the pattern of `dev/<github-account-name>/<conventional-commits-action>/<summary>`
-5. PR's should fill out the pull_request_template — It's generated for you automatically on every PR.
+5. PR's should fill out the pull request template — GitHub pre-fills it from `.github/pull_request_template.md` when you open a PR.
 6. My preference is that all commits are verified and that we keep linear commit history.
 <img width="1200" height="630" alt="image" src="https://github.com/user-attachments/assets/25d8e971-03d8-4b81-95e1-c9269c878c2a" />
