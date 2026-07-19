@@ -15,13 +15,29 @@ pre-commit:
     - name: tflint
       run: shell/hooks/tflint.sh
 
+# Both pre-push jobs declare `files` explicitly.
+#
+# Lefthook decides whether to run a job from its own file list, and for pre-push
+# it derives that from the branch's remote tracking ref. On
+# `git push origin HEAD:main` — this repository's merge workflow — the branch had
+# already been pushed, so the list came back empty and both jobs were skipped
+# with "no matching push files", on the one push that lands code on main.
+#
+# Overriding `files` with a diff against origin/main gives lefthook the right
+# baseline: on a feature branch it is the branch's own commits, and on an
+# FF-push to main it is exactly what is landing. The scripts then apply their own
+# filtering and exit 0 early when no Terraform changed.
+#
+# lefthook v2 has no skip_empty; `files` is the supported way to control this.
 pre-push:
   jobs:
     - name: terraform-validate
       run: shell/hooks/terraform-validate.sh
+      files: git diff --name-only $(git merge-base HEAD origin/main)..HEAD
 
     - name: terraform-test
       run: shell/hooks/terraform-test.sh
+      files: git diff --name-only $(git merge-base HEAD origin/main)..HEAD
 
 commit-msg:
   jobs:
