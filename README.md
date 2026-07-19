@@ -28,7 +28,7 @@ Follow these steps to ensure a smooth Pull Request process
 
    `yarn install` pulls in commitlint, and `yarn prepare` installs the git hooks that lint your commit messages. `yarn install` alone does **not** install the hooks — run both.
 
-   Requires [lefthook](https://lefthook.dev/installation/) on your PATH (`brew install lefthook`). Yarn resolves to the pinned 4.x release via corepack.
+   Requires [lefthook](https://lefthook.dev/install/) on your PATH (`brew install lefthook`). Yarn resolves to the pinned 4.x release via corepack.
 
 2. PR titles should follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g.:
 
