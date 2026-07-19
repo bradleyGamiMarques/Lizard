@@ -14,7 +14,13 @@ decide in advance which instances are expendable, by tagging them.
 
 - An untagged instance burning money **will not be stopped**.
 - Every tagged instance is stopped, not just the expensive one.
-- Instances are stopped, never terminated. Instance store data does not survive.
+- Instances are stopped, never terminated — EBS volumes and instance IDs survive,
+  and you can start them again.
+- **Instance store data does not survive a stop.** Ephemeral NVMe disks are tied
+  to the host; a stopped instance restarts on a different one with empty local
+  disks. This affects `d`-suffix and storage-optimised families (`m5d`, `i3`,
+  `i4i`, …). If a tagged instance keeps anything it cares about on local storage,
+  treat a Lizard trigger as data loss.
 
 It is a circuit breaker with a blast radius you declare, not a targeted fix.
 
