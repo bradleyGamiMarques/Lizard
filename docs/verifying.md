@@ -1,0 +1,205 @@
+# Verifying Lizard against a real AWS account
+
+Everything in this repository is verified by `terraform validate`, `tflint`, and
+mocked unit tests. None of that proves the chain actually works: mocks confirm
+shape and typing, not that EventBridge delivers to SSM or that the runbook's
+JSONPath selector returns instance IDs in the form `StopInstances` accepts.
+
+This page is the procedure for finding out. **It stops real EC2 instances and
+spends real money.**
+
+## Read this before starting
+
+- **Use throwaway instances.** The remediation genuinely stops whatever carries
+  the tag. Never run this against anything you care about.
+- **A big instance does not speed the test up.** `EstimatedCharges` publishes
+  roughly every six hours, so metric latency dominates, not how quickly you reach
+  the threshold. An `m5.24xlarge` crosses $0.50 in about seven minutes and then
+  bills ~$4.60/hour while you wait — roughly $28 for nothing. A `t3.micro` at
+  ~$0.01/hour proves the same thing.
+- **You probably do not need to generate spend at all.** AWS puts an alarm into
+  `ALARM` immediately if charges already exceed the threshold at creation time.
+  Month-to-date EC2 spend in an account with any activity is already above $0.50.
+- **The bucket outlives `terraform destroy`.** The bootstrap stack sets
+  `prevent_destroy`. Removing it is a deliberate manual act.
+- **Billing alerts take ~15 minutes** to start publishing after you enable them.
+
+## Phase 0 — prerequisites
+
+1. Enable **Receive CloudWatch Billing Alerts** in the payer account, under
+   Billing and Cost Management → Billing Preferences. Nothing works without this
+   and the failure is silent: the alarm simply sits in `INSUFFICIENT_DATA`.
+2. Grant your identity the permissions in [permissions.md](permissions.md).
+3. Confirm billing data is actually flowing before going further:
+
+   ```bash
+   aws cloudwatch list-metrics \
+     --namespace AWS/Billing --metric-name EstimatedCharges \
+     --region us-east-1
+   ```
+
+   Empty output means step 1 has not taken effect yet. Wait, do not proceed.
+
+4. Note your current month-to-date EC2 charges, so you can pick a threshold below
+   them:
+
+   ```bash
+   aws cloudwatch get-metric-statistics \
+     --namespace AWS/Billing --metric-name EstimatedCharges \
+     --dimensions Name=ServiceName,Value=AmazonEC2 Name=Currency,Value=USD \
+     --start-time "$(date -u -v-12H '+%Y-%m-%dT%H:%M:%SZ')" \
+     --end-time "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+     --period 21600 --statistics Maximum --region us-east-1
+   ```
+
+## Phase 1 — bootstrap the state bucket
+
+```bash
+terraform -chdir=terraform/bootstrap init
+terraform -chdir=terraform/bootstrap apply
+terraform -chdir=terraform/bootstrap output backend_hcl
+```
+
+**What to check.** The apply succeeds, and the output prints a `bucket` and
+`region` pair. This is also the first real test of
+[permissions.md](permissions.md) — record any `AccessDenied` and the action it
+names.
+
+## Phase 2 — deploy the alarm and remediation
+
+The example keeps state locally, which is fine for a test deployment.
+
+```bash
+cd terraform/examples/stop-tagged-ec2
+terraform init
+terraform apply -var 'threshold_usd=0.50'
+```
+
+**What to check.**
+
+- The apply succeeds. `awscc` resources exercise the Cloud Control API, so this
+  is where a missing `cloudcontrol:*` action surfaces.
+- The alarm exists and its state is meaningful:
+
+  ```bash
+  aws cloudwatch describe-alarms \
+    --alarm-names "$(terraform output -raw alarm_name)" \
+    --region us-east-1 --query 'MetricAlarms[0].[StateValue,StateReason]'
+  ```
+
+  `INSUFFICIENT_DATA` here means billing data is not flowing — go back to
+  Phase 0. If month-to-date EC2 spend already exceeds $0.50, expect `ALARM`.
+
+## Phase 3 — two instances, one tagged
+
+This is the test that matters, because it checks the boundary as well as the
+action. Launch two throwaway instances and tag only one.
+
+```bash
+# Tagged — expected to be stopped
+aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
+  --region us-east-1 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=StoppableBy,Value=Lizard},{Key=Name,Value=lizard-test-tagged}]'
+
+# Untagged — expected to survive
+aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
+  --region us-east-1 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=lizard-test-untagged}]'
+```
+
+Wait for both to reach `running` — the runbook filters on that state, so a
+`pending` instance is skipped.
+
+## Phase 4 — force the alarm
+
+Do not wait for real spend. Forcing the state emits a genuine
+`CloudWatch Alarm State Change` event, so EventBridge and SSM behave exactly as
+they would in production.
+
+```bash
+aws cloudwatch set-alarm-state \
+  --alarm-name "$(terraform output -raw alarm_name)" \
+  --state-value ALARM \
+  --state-reason "Verifying Lizard remediation" \
+  --region us-east-1
+```
+
+**What to check, in order.**
+
+1. An automation execution started at all — this proves EventBridge accepted the
+   SSM target ARN and `Input` shape:
+
+   ```bash
+   aws ssm describe-automation-executions \
+     --filters Key=DocumentNamePrefix,Values="$(terraform output -raw document_name)" \
+     --region us-east-1
+   ```
+
+   Nothing here means the event did not route. Check the rule's metrics for
+   `FailedInvocations`.
+
+2. The execution **succeeded**. A failure at `stopInstances` with an empty
+   parameter means the JSONPath selector
+   `$.Reservations..Instances..InstanceId` did not return IDs in the shape
+   `StopInstances` wants — the single most likely defect in this repository.
+
+   ```bash
+   aws ssm get-automation-execution \
+     --automation-execution-id <id> --region us-east-1 \
+     --query 'AutomationExecution.StepExecutions[].[StepName,StepStatus,FailureMessage]'
+   ```
+
+3. **The tagged instance is stopping or stopped.**
+4. **The untagged instance is still running.** This is the permission boundary
+   working. If it stopped too, the `ec2:ResourceTag` condition is not doing what
+   the module claims and that is a serious finding.
+
+```bash
+aws ec2 describe-instances --region us-east-1 \
+  --filters 'Name=tag:Name,Values=lizard-test-*' \
+  --query 'Reservations[].Instances[].[InstanceId,State.Name,Tags[?Key==`StoppableBy`].Value|[0]]' \
+  --output table
+```
+
+The alarm returns to its real state at the next evaluation.
+
+## Phase 5 — optional, prove the alarm itself
+
+Phase 4 verifies everything downstream of the alarm but not the alarm's own
+trigger. To close that gap, set a threshold below current month-to-date EC2 spend
+and wait for a real evaluation — up to six hours. Re-tag an instance first, since
+Phase 4 already stopped the previous one.
+
+Note that EventBridge fires on the *transition* into `ALARM`. Once the alarm is
+in `ALARM` it will not fire again until it returns to `OK`, so an instance tagged
+afterwards is not stopped.
+
+## Teardown
+
+```bash
+aws ec2 terminate-instances --instance-ids i-... i-... --region us-east-1
+terraform destroy -var 'threshold_usd=0.50'
+```
+
+Leaving the alarm in place with a $0.50 threshold means it stays in `ALARM` for
+the rest of the month.
+
+The state bucket survives `terraform destroy` by design. Remove
+`prevent_destroy` from `terraform/bootstrap/main.tf` first if you genuinely want
+it gone.
+
+## Record the results
+
+Update this table, and correct [permissions.md](permissions.md) with anything a
+real apply turned up. The value of this exercise is the claims it *disproves*.
+
+| Claim | Verified? | Notes |
+| --- | --- | --- |
+| Permissions in `permissions.md` are sufficient | not yet | |
+| `awscc` requires `cloudcontrol:*` as well as service actions | not yet | |
+| Alarm reaches `ALARM` on real spend | not yet | |
+| EventBridge accepts the automation-definition ARN and `Input` | not yet | |
+| JSONPath selector returns IDs `StopInstances` accepts | not yet | |
+| Tagged instance is stopped | not yet | |
+| Untagged instance is **not** stopped | not yet | |
+| Zero-match run fails as documented | not yet | |

@@ -205,6 +205,11 @@ The alarm itself must live in **us-east-1**. AWS publishes the `AWS/Billing`
 CloudWatch namespace only in that region, regardless of where the resources it
 acts on are.
 
+Mocked unit tests prove wiring and typing only. The end-to-end procedure for
+checking that the chain actually works against a real account — and the table
+recording which claims are still unverified — is
+[docs/verifying.md](docs/verifying.md).
+
 Deploy permissions are documented in [docs/permissions.md](docs/permissions.md).
 The trap there is the `awscc` provider: it calls the Cloud Control API, so a
 principal needs `cloudcontrol:*` **as well as** the underlying service actions.

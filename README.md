@@ -17,6 +17,7 @@
 2. Grant your deploying identity the permissions in [docs/permissions.md](docs/permissions.md)
 3. Enable **Receive CloudWatch Billing Alerts** in the payer account — without it AWS publishes no billing data and no alarm can ever fire
 4. Deploy the configurations to your AWS account via Terraform
+5. Verify it actually works using [docs/verifying.md](docs/verifying.md) — it stops real instances, so use throwaways
 
 ## 🤝 Contributing
 Thank you for contributing to Lizard!
