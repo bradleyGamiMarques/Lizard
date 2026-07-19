@@ -172,25 +172,100 @@ Two consequences:
   a `remote: Bypassed rule violations` notice. **That notice is not an error** —
   check the ref-update line before assuming the push failed.
 
+## Terraform
+
+Two stacks live under `terraform/`:
+
+| Stack | State | Purpose |
+| --- | --- | --- |
+| `bootstrap/` | local | Creates the S3 state bucket. Run once per AWS account. |
+| `billing-alarm/` | S3 backend | The alarm stack. |
+
+`bootstrap` keeps local state on purpose: it cannot store state in the bucket it
+is creating. First-time setup:
+
+```bash
+terraform -chdir=terraform/bootstrap init
+terraform -chdir=terraform/bootstrap apply
+terraform -chdir=terraform/bootstrap output backend_hcl   # prints the values below
+
+cd terraform/billing-alarm
+cp backend.hcl.example backend.hcl      # gitignored — fill in from the output above
+terraform init -backend-config=backend.hcl
+```
+
+`bucket` and `region` are account-specific and are passed at init time rather
+than committed, because this repository is public.
+
+State locking uses the S3 backend's `use_lockfile`, which locks via S3
+conditional writes and requires Terraform 1.10 or newer. There is no DynamoDB
+lock table to create or pay for.
+
+The alarm itself must live in **us-east-1**. AWS publishes the `AWS/Billing`
+CloudWatch namespace only in that region, regardless of where the resources it
+acts on are.
+
 ## Tooling
 
 ```bash
 yarn install && yarn prepare
+brew install terraform tflint
 ```
 
 `yarn prepare` installs the lefthook git hooks; `yarn install` alone does not.
 Prefer the yarn scripts over calling binaries directly — `yarn prepare`, not
 `lefthook install`.
 
-- **commitlint** (`commitlint.config.mjs`) enforces Conventional Commits with a
-  70-character header limit and a fixed type list.
-- **lefthook** (`lefthook.yml`) runs commitlint on `commit-msg`.
-- **CI** (`.github/workflows/commitlint.yml`) lints every commit in the PR range
-  and the PR title, because `git commit --no-verify` bypasses the local hook.
+### Git hooks
 
-In that workflow the PR title reaches the shell through `env:`, never
-interpolated as `${{ github.event.pull_request.title }}` inside `run:`. A title
-containing `$(...)` would otherwise execute as shell. Keep it that way.
+`lefthook.yml` wires four jobs across three stages. Each is a script under
+`shell/hooks/`, so any of them can be run on its own while debugging:
+
+| Stage | Job | What it does |
+| --- | --- | --- |
+| `pre-commit` | `terraform-fmt` | Formats staged `.tf` files, then exits non-zero if it changed any — so you re-stage instead of committing unformatted HCL. |
+| `pre-commit` | `tflint` | `tflint --recursive` when any `.tf` under `terraform/` is staged. |
+| `pre-push` | `terraform-validate` | `init -backend=false` plus `validate` for every stack. |
+| `commit-msg` | `commitlint` | Conventional Commits, 70-character header, fixed type list. |
+
+Each hook exits 0 immediately when nothing relevant is staged, so unrelated
+commits are not slowed down.
+
+Two details in `terraform-validate.sh` are deliberate:
+
+- It points `TF_DATA_DIR` at a scratch directory that is removed on exit. **Do
+  not remove this.** Without it the hook re-runs `terraform init -backend=false`
+  inside your real `.terraform/`, silently detaching your working copy from the
+  remote S3 backend.
+- It **discovers** stacks — every immediate subdirectory of `terraform/` holding
+  `.tf` files — rather than reading a hardcoded list, which goes stale the first
+  time someone adds a stack.
+
+### CI
+
+Both workflows re-run the local checks, because `--no-verify` bypasses the hooks
+on commit and push alike.
+
+- `.github/workflows/commitlint.yml` — every commit in the PR range, plus the PR
+  title.
+- `.github/workflows/terraform.yml` — `fmt`, `tflint`, and `validate` as a matrix
+  over each stack.
+
+Three things to preserve:
+
+- In the commitlint workflow the PR title reaches the shell through `env:`, never
+  interpolated as `${{ github.event.pull_request.title }}` inside `run:`. A title
+  containing `$(...)` would otherwise execute as shell.
+- Every action is pinned to an exact patch version. Major tags float, which would
+  change what CI enforces without review.
+- `terraform init` runs with `-lockfile=readonly`, so a missing platform hash in
+  `.terraform.lock.hcl` fails loudly instead of being regenerated on the runner.
+  After adding or upgrading a provider, refresh the hashes:
+
+  ```bash
+  terraform providers lock \
+    -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64
+  ```
 
 ## Branch naming
 
@@ -200,9 +275,12 @@ Example: `dev/bradleyGamiMarques/chore/add-yarn-commitlint-tooling`
 
 ## Not yet done
 
-- **No Terraform.** The README describes billing-alarm IaC that does not exist
-  yet.
-- **No Terraform CI.** `terraform validate` fails when there are no `.tf` files,
-  so `fmt -check` / `validate` / `plan` should land with the first real config.
-  That is also what turns the pull request template's **Blast radius** section
-  from a prompt into an enforced check.
+- **No billing alarm.** The backend and provider scaffolding exist, but the
+  CloudWatch alarm on `EstimatedCharges` and the stop/terminate action the README
+  promises do not.
+- **Bootstrap has never been applied.** No state bucket exists in any account
+  yet, so `terraform/billing-alarm` cannot be initialised against its backend.
+- **No `terraform plan` in CI.** Planning needs real AWS credentials, which means
+  an OIDC role and a scoped IAM policy. Until that exists CI covers `fmt`,
+  `validate`, and `tflint` only, and the pull request template's **Blast radius**
+  section is filled in by hand rather than backed by a plan.
