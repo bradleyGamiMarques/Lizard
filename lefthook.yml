@@ -15,29 +15,32 @@ pre-commit:
     - name: tflint
       run: shell/hooks/tflint.sh
 
-# Both pre-push jobs declare `files` explicitly.
+# These jobs cover branch pushes only. They do NOT run on
+# `git push origin HEAD:main`, which is this repository's merge workflow.
 #
-# Lefthook decides whether to run a job from its own file list, and for pre-push
-# it derives that from the branch's remote tracking ref. On
-# `git push origin HEAD:main` — this repository's merge workflow — the branch had
-# already been pushed, so the list came back empty and both jobs were skipped
-# with "no matching push files", on the one push that lands code on main.
+# Lefthook decides whether a pre-push job has work by diffing against `@{push}`
+# — the branch's own push destination — not the ref being pushed to. On an
+# FF-push to main the branch has usually already been pushed, so that diff is
+# empty and both jobs are skipped with "no matching push files".
 #
-# Overriding `files` with a diff against origin/main gives lefthook the right
-# baseline: on a feature branch it is the branch's own commits, and on an
-# FF-push to main it is exactly what is landing. The scripts then apply their own
-# filtering and exit 0 early when no Terraform changed.
+# Two attempts to work around this failed. Fixing the scripts' internal scope
+# logic did nothing, because lefthook skips before the script runs. Overriding
+# `files` did nothing either, because that gate is consulted after the push-file
+# check. lefthook v2 removed `skip_empty`, and `lefthook run --force` is a CLI
+# flag with no config equivalent.
 #
-# lefthook v2 has no skip_empty; `files` is the supported way to control this.
+# The gap is covered in CI instead: .github/workflows/terraform.yml also runs on
+# push to main, so a merge is validated even though this hook stays quiet. Do not
+# add a `files:` override here expecting it to help — it looks like it works when
+# tested with `lefthook run pre-push`, because that path has no stdin and falls
+# through to it.
 pre-push:
   jobs:
     - name: terraform-validate
       run: shell/hooks/terraform-validate.sh
-      files: git diff --name-only $(git merge-base HEAD origin/main)..HEAD
 
     - name: terraform-test
       run: shell/hooks/terraform-test.sh
-      files: git diff --name-only $(git merge-base HEAD origin/main)..HEAD
 
 commit-msg:
   jobs:

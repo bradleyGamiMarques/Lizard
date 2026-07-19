@@ -10,11 +10,31 @@ on:
       - '.tflint.hcl'
       - '.github/workflows/terraform.yml'
 
+  # Also on push to main, because merges here are fast-forward pushes rather than
+  # button merges, and the pre-push hook does not fire on them — see the note in
+  # lefthook.yml. Without this, code reaching main outside a pull request is
+  # never checked by anything.
+  #
+  # This validates after landing rather than blocking, which is the trade for
+  # keeping signatures intact on merge.
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - '.tflint.hcl'
+      - '.github/workflows/terraform.yml'
+
 permissions:
   contents: read
 
+# On a pull request, supersede the previous run for that PR. On a push to main
+# there is no PR number, so fall back to the commit SHA: each merge then gets its
+# own group and nothing cancels it. Sharing one group across pushes would let a
+# later merge cancel the validation of an earlier one, discarding the result this
+# trigger exists to produce.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:
