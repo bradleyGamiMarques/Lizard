@@ -24,32 +24,38 @@ decide in advance which instances are expendable, by tagging them.
 
 It is a circuit breaker with a blast radius you declare, not a targeted fix.
 
-### It fires once, then stays quiet until next month
+### This example acts once per billing month
 
-**Restarting a stopped instance defeats Lizard until the next billing month.**
+**Restarting a stopped instance defeats this example until the next billing
+month.** That is a consequence of how the example is wired, not a limit of the
+approach — see below for how to change it.
 
-EventBridge delivers on the *transition* into `ALARM`, not on the alarm being in
-`ALARM`. And `EstimatedCharges` is a month-to-date running total, so within a
-month it only climbs — once it crosses your threshold the alarm enters `ALARM`
-and stays there until charges reset at the month boundary.
+Two AWS behaviours combine:
 
-So:
+- EventBridge delivers on the **transition** into `ALARM`, not on the alarm
+  *being* in `ALARM`.
+- `EstimatedCharges` is a month-to-date running total, so within a month it only
+  climbs. Once past your threshold the alarm stays in `ALARM` until charges reset
+  at the month boundary.
+
+This example triggers solely on that transition. So:
 
 1. Spend crosses the threshold, the alarm transitions, tagged instances stop
 2. Someone starts one again
 3. Spend keeps climbing, but the alarm is already in `ALARM` — no transition, no
    event, nothing stops it
-4. Lizard re-arms only when the new billing month drops charges back below the
-   threshold
+4. The next event comes only when a new billing month drops charges below the
+   threshold and spend climbs past it again
 
-Treat it as a **spent fuse, not a latching switch**. It buys you the moment you
-crossed the line; it does not hold the line.
+As wired, it is a **spent fuse rather than a latching switch**: it catches the
+moment you crossed the line, it does not hold the line.
 
-If you need continuous enforcement, the shape that fits is a scheduled rule
-firing the same runbook on an interval, with the runbook checking alarm state
-before acting. Blocking `ec2:StartInstances` on tagged instances via SCP or IAM
-closes the loophole instead of reacting to it, at the cost of being considerably
-more invasive. Neither is implemented here.
+**Changing it.** This is example IaC — adapt it. For continuous enforcement, add
+a scheduled EventBridge rule firing the same runbook on an interval, with the
+runbook checking alarm state first. To close the loophole rather than react to
+it, deny `ec2:StartInstances` on tagged instances via SCP or IAM while the alarm
+is up; more invasive, but a restart then cannot happen at all. Neither ships
+here, and both reuse the alarm, runbook, and roles already built.
 
 ## Before you start
 

@@ -227,10 +227,12 @@ run, and none is visible to a mocked test.
 - **EventBridge fires on the transition into `ALARM`**, not on the state. An
   alarm already in `ALARM` will not re-fire; re-testing needs `OK` → `ALARM`.
   Combined with `EstimatedCharges` being a month-to-date total that only climbs,
-  this means remediation fires **once per billing month**: restart a stopped
-  instance and nothing stops it again until charges reset at the month boundary.
-  Continuous enforcement would need a scheduled rule re-asserting the runbook, or
-  a policy denying `ec2:StartInstances` on tagged instances. Neither exists yet.
+  a trigger built solely on that transition acts **once per billing month**:
+  restart a stopped instance and nothing stops it again until charges reset at
+  the month boundary. That is a property of how the example is wired, not of the
+  approach — a scheduled rule re-asserting the runbook, or a policy denying
+  `ec2:StartInstances` on tagged instances, would give continuous enforcement.
+  Neither ships here.
 - **The `awscc` provider calls the Cloud Control API**, so a deploying principal
   needs `cloudcontrol:*` *as well as* the underlying service actions. Neither
   alone is sufficient.
