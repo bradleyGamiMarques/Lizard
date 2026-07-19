@@ -14,7 +14,9 @@
 
 ## 🚀 Getting Started
 1. Clone the repository to your development machine
-2. Deploy the configurations to your AWS account via Terraform
+2. Grant your deploying identity the permissions in [docs/permissions.md](docs/permissions.md)
+3. Enable **Receive CloudWatch Billing Alerts** in the payer account — without it AWS publishes no billing data and no alarm can ever fire
+4. Deploy the configurations to your AWS account via Terraform
 
 ## 🤝 Contributing
 Thank you for contributing to Lizard!

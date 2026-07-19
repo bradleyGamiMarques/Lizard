@@ -325,3 +325,40 @@ run "rejects_an_empty_tag_key" {
 
   expect_failures = [var.stoppable_tag_key]
 }
+
+# The failure this guards against is a plausible typo, not a nonsense string.
+# "AmazonEc2" is alphanumeric and looks right, so the previous shape-only check
+# accepted it — producing an alarm that receives no data and never fires.
+run "rejects_a_plausible_service_name_typo" {
+  command = plan
+
+  variables {
+    service_name = "AmazonEc2"
+  }
+
+  expect_failures = [var.service_name]
+}
+
+run "rejects_a_display_name_instead_of_a_billing_name" {
+  command = plan
+
+  variables {
+    service_name = "EC2"
+  }
+
+  expect_failures = [var.service_name]
+}
+
+# A different real service name is rejected, not because it is invalid to AWS,
+# but because it is incoherent here: this module stops EC2 instances, so watching
+# RDS spend and then stopping EC2 boxes is a config that reads sensibly and does
+# the wrong thing.
+run "rejects_a_service_this_module_cannot_act_on" {
+  command = plan
+
+  variables {
+    service_name = "AmazonRDS"
+  }
+
+  expect_failures = [var.service_name]
+}

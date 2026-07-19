@@ -205,6 +205,12 @@ The alarm itself must live in **us-east-1**. AWS publishes the `AWS/Billing`
 CloudWatch namespace only in that region, regardless of where the resources it
 acts on are.
 
+Deploy permissions are documented in [docs/permissions.md](docs/permissions.md).
+The trap there is the `awscc` provider: it calls the Cloud Control API, so a
+principal needs `cloudcontrol:*` **as well as** the underlying service actions.
+A policy granting only `cloudwatch:PutMetricAlarm` fails, and so does one
+granting only `cloudcontrol:CreateResource`.
+
 ## Tooling
 
 ```bash

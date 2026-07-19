@@ -29,6 +29,10 @@ Consequences worth understanding before you apply this:
    flowing after you enable it.
 2. **us-east-1.** AWS publishes `AWS/Billing` only there. The module fails the
    plan elsewhere rather than creating an alarm that can never fire.
+3. **Deploy permissions.** See [docs/permissions.md](../../../docs/permissions.md).
+   Note that `awscc` resources need `cloudcontrol:*` actions *in addition to* the
+   underlying service permissions — granting only `cloudwatch:PutMetricAlarm` is
+   not enough.
 
 ## Usage
 

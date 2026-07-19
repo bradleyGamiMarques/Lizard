@@ -25,16 +25,33 @@ variable "service_name" {
     one service — "AmazonEC2" for EC2 spend. Leave null to alarm on the account's
     total estimated charges instead.
 
-    These are AWS's internal service names, not display names: AmazonEC2 rather
-    than "EC2", AWSLambda rather than "Lambda". A value AWS does not publish
-    produces an alarm that receives no data and therefore never fires.
+    Only "AmazonEC2" or null are accepted. This module stops EC2 instances, so
+    scoping its alarm to another service would watch one thing and act on
+    another.
+
+    Note that AWS uses internal billing names rather than display names —
+    AmazonEC2, not "EC2". A value AWS does not publish produces an alarm that
+    receives no data and therefore never fires, which is why the value is checked
+    against a known name rather than merely for shape.
   EOT
   type        = string
   default     = null
 
   validation {
-    condition     = var.service_name == null || can(regex("^[A-Za-z0-9]+$", coalesce(var.service_name, "x")))
-    error_message = "service_name must be an AWS internal service name such as AmazonEC2 (alphanumeric, no spaces or punctuation)."
+    condition     = var.service_name == null || var.service_name == "AmazonEC2"
+    error_message = <<-EOT
+      service_name must be "AmazonEC2" or null.
+
+      This module's remediation stops EC2 instances, so scoping its alarm to any
+      other service would watch one service's spend and act on another —
+      alarming on RDS charges and then stopping EC2 boxes. Only two configurations
+      are coherent here: AmazonEC2 to watch EC2 spend, or null to watch the
+      account total.
+
+      AWS billing names also differ from display names, so "EC2" and "AmazonEc2"
+      are both rejected — either would produce an alarm that receives no data and
+      never fires.
+    EOT
   }
 }
 
