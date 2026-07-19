@@ -14,25 +14,19 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 TF_ROOT="terraform"
 
-# Same push-scope logic as terraform-validate.sh: commits on HEAD not yet
-# upstream, falling back to origin/main for a branch's first push.
+# Same push-scope logic as terraform-validate.sh, measured against origin/main
+# rather than the branch's own upstream. Comparing against @{u} made both hooks
+# skip on `git push origin HEAD:main`, which is this repository's merge
+# workflow — see the longer note in terraform-validate.sh.
 get_changed_files() {
-  local upstream
-  if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-    git diff --name-only "${upstream}..HEAD" 2>/dev/null || true
-    return
-  fi
-
   local base
   if base="$(git merge-base HEAD origin/main 2>/dev/null)"; then
     git diff --name-only "${base}..HEAD" 2>/dev/null || true
-    return
   fi
 }
 
 scope_unknown=false
-if ! git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 \
-  && ! git merge-base HEAD origin/main >/dev/null 2>&1; then
+if ! git merge-base HEAD origin/main >/dev/null 2>&1; then
   scope_unknown=true
 fi
 

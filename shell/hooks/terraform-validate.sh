@@ -14,27 +14,29 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 TF_ROOT="terraform"
 
-# Determine which .tf files are changing in this push. For a pre-push hook the
-# relevant set is "commits on HEAD that aren't yet upstream" — git diff
-# @{u}..HEAD. A brand-new branch has no upstream on its first push, so fall
-# back to comparing against origin/main.
+# Which files this push would land, measured against origin/main.
+#
+# An earlier version compared against the branch's own upstream (@{u}). That is
+# wrong for this repository's merge workflow: `git push origin HEAD:main` pushes
+# to a ref that is not the branch's upstream, so once the branch had been pushed
+# @{u}..HEAD was empty and both pre-push hooks skipped — on the one push that
+# actually lands code on main. Commit locally, skip pushing the branch, FF-push
+# to main, and nothing was checked at all. CI does not cover it either; the
+# Terraform workflow only runs on pull_request.
+#
+# origin/main is the right baseline for both cases. On a feature branch it is
+# the branch's own commits; on an FF-push to main it is exactly what is landing.
+# It re-checks earlier commits on later pushes to a long branch, which is a
+# cheap price for a guard that no longer skips when it matters.
 get_changed_files() {
-  local upstream
-  if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-    git diff --name-only "${upstream}..HEAD" 2>/dev/null || true
-    return
-  fi
-
   local base
   if base="$(git merge-base HEAD origin/main 2>/dev/null)"; then
     git diff --name-only "${base}..HEAD" 2>/dev/null || true
-    return
   fi
 }
 
 scope_unknown=false
-if ! git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1 \
-  && ! git merge-base HEAD origin/main >/dev/null 2>&1; then
+if ! git merge-base HEAD origin/main >/dev/null 2>&1; then
   scope_unknown=true
 fi
 
