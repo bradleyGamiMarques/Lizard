@@ -241,6 +241,35 @@ Two details in `terraform-validate.sh` are deliberate:
   `.tf` files — rather than reading a hardcoded list, which goes stale the first
   time someone adds a stack.
 
+### Commit messages
+
+Conventional Commits, enforced by the `commit-msg` hook and re-checked in CI.
+Check a message without committing anything:
+
+```bash
+yarn commitlint --verbose < message.txt
+```
+
+**Never let a body line begin with `word:`.** Git's trailer parser treats any
+line matching `token: value` as the start of the footer, so wrapping prose at 72
+columns can produce one by accident:
+
+```text
+Rewrite the tooling section to cover all four lefthook jobs and both
+workflows, and record the two decisions that are easiest to undo by
+accident: the scratch TF_DATA_DIR that stops the pre-push hook from
+detaching a working copy from remote state.
+```
+
+That `accident:` is read as a footer token mid-paragraph. The footer is then
+judged to have no blank line above it and `footer-leading-blank` rejects the
+commit — even though there is a perfectly good blank line before the real
+`Co-Authored-By` trailer, which is where you will look first. Rewrap the line, or
+replace the colon with an em dash.
+
+This is the mirror image of the failure described in `commitlint.config.mjs`:
+there, a trailer glued to the body is *not* recognised; here, ordinary prose *is*.
+
 ### CI
 
 Both workflows re-run the local checks, because `--no-verify` bypasses the hooks
