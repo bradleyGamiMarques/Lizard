@@ -198,6 +198,15 @@ Creating the alarm, runbook, rule, and two IAM roles.
       "Resource": "arn:aws:iam::*:role/*-stop-ec2-*"
     },
     {
+      "Sid": "PassInvocationRoleToEventBridge",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::*:role/*-stop-ec2-*",
+      "Condition": {
+        "StringEquals": { "iam:PassedToService": "events.amazonaws.com" }
+      }
+    },
+    {
       "Sid": "IdentifyTheAccount",
       "Effect": "Allow",
       "Action": "sts:GetCallerIdentity",
@@ -219,20 +228,76 @@ deploying principal effective IAM administrator rights on the account. If your
 organisation uses permissions boundaries, apply one and add an
 `iam:PermissionsBoundary` condition here.
 
+### `iam:PassRole` is needed by *you*, not just by EventBridge
+
+`PassInvocationRoleToEventBridge` is easy to miss, because the module already
+grants EventBridge its own `PassRole` for handing the automation role to SSM at
+runtime. That is a different thing.
+
+Creating the rule attaches `role_arn` to the target, and handing a role to a
+service is itself a privileged act — so the **deploying principal** needs
+`iam:PassRole` for the invocation role. Without it the apply fails at
+`awscc_events_rule`, *after* both roles have already been created, leaving a
+half-applied stack: roles and runbook present, no rule, nothing wired up.
+
+The condition restricts it to EventBridge, so this grant cannot be reused to
+hand those roles to any other service.
+
 Note that `Resource` on the other statements is `*`. Most of these actions are
 either create-time (no ARN exists yet to scope against) or list operations that
 do not accept a resource. That is a real limitation, not an oversight.
 
+## Check what you have; do not infer it from a name
+
+The AWS managed `PowerUserAccess` policy allows everything **except** `iam:*`,
+`organizations:*`, and `account:*`. On its own it can deploy the bootstrap stack,
+which is pure S3, but not the alarm stack, which creates two IAM roles.
+
+**An Identity Center permission set named `PowerUserAccess` does not necessarily
+grant only that policy.** The assumed-role name (`AWSReservedSSO_PowerUserAccess_…`)
+reflects what the set was *called*, not what is attached. Reasoning from it has
+already produced one wrong prediction against this repository.
+
+Ask IAM directly:
+
+```bash
+ARN=$(aws sts get-caller-identity --query Arn --output text)
+aws iam simulate-principal-policy \
+  --policy-source-arn "$(echo "$ARN" | sed 's#:sts:#:iam:#; s#assumed-role/#role/#; s#/[^/]*$##')" \
+  --action-names iam:CreateRole iam:PutRolePolicy iam:PassRole \
+  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
+```
+
+`allowed` on all three means the alarm stack can be applied.
+
+## One SSM action, three resource ARNs
+
+Not a deploy permission, but the same class of trap and it cost two failed
+runs. `ssm:StartAutomationExecution` is authorised against **three** distinct
+resources:
+
+| ARN form | What it is |
+| --- | --- |
+| `document/<name>` | the runbook as a document |
+| `automation-definition/<name>` | the runbook as an EventBridge target names it |
+| `automation-execution/*` | the execution being created |
+
+Granting only one produces `AccessDenied` naming a resource your policy never
+mentions, and fixing that reveals the next. The module now grants all three; see
+`terraform/modules/billing-alarm-stop-ec2/iam.tf`.
+
 ## Verification status
 
-**These policies are derived from the resources in the configuration, not from
-an observed least-privilege deployment.** Nothing in this repository has been
-applied to an AWS account yet.
+Both stacks **have now been applied successfully** to a real account, so the
+resources and actions listed here are real rather than guessed.
 
-Expect to hit missing actions on a first real apply — Cloud Control API surfaces
-them as `AccessDenied` naming the underlying service action, which makes them
-straightforward to add. Cloud Control operations are asynchronous and the
-provider polls for completion, so if you see denials during polling, add
+They are still **not proven minimal**. The applies ran with an Identity Center
+role carrying `PowerUserAccess` plus full IAM, not with the policies on this
+page, so nothing here has been tested as a least-privilege set — it may be
+missing actions, or contain some that are unnecessary.
+
+If you deploy with exactly these policies, please record what breaks. Cloud
+Control surfaces failures as `AccessDenied` naming the underlying service action,
+which makes them straightforward to add. Its operations are asynchronous and the
+provider polls, so if denials appear during polling, add
 `cloudcontrol:GetResourceRequestStatus`.
-
-Please update this page with anything a real deploy turns up.

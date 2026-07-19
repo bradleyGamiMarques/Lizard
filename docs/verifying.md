@@ -95,11 +95,12 @@ Wait for both to reach `running` — the runbook filters on that state, so a
 
 ## Phase 3 — deploy the alarm and remediation
 
-The example keeps state locally, which is fine for a test deployment.
+State lives in the bucket created by Phase 1, so it survives losing your laptop.
 
 ```bash
 cd terraform/examples/stop-tagged-ec2
-terraform init
+cp backend.hcl.example backend.hcl     # fill in from the Phase 1 output
+terraform init -backend-config=backend.hcl
 terraform apply -var 'threshold_usd=0.50'
 ```
 
@@ -217,11 +218,35 @@ real apply turned up. The value of this exercise is the claims it *disproves*.
 
 | Claim | Verified? | Notes |
 | --- | --- | --- |
-| Permissions in `permissions.md` are sufficient | not yet | |
-| `awscc` requires `cloudcontrol:*` as well as service actions | not yet | |
-| Alarm reaches `ALARM` on real spend | not yet | |
-| EventBridge accepts the automation-definition ARN and `Input` | not yet | |
-| JSONPath selector returns IDs `StopInstances` accepts | not yet | |
-| Tagged instance is stopped | not yet | |
-| Untagged instance is **not** stopped | not yet | |
-| Zero-match run fails as documented | not yet | |
+| Billing data is published for this account | **yes** | `get-metric-statistics` returned a datapoint |
+| Bootstrap stack applies | **yes** | 6 resources created |
+| Bucket has versioning enabled | **yes** | `Status: Enabled` |
+| Bucket is encrypted with AES256 | **yes** | confirmed via `get-bucket-encryption` |
+| All four public-access-block flags set | **yes** | all `true` |
+| Noncurrent versions expire after 30 days | **yes** | lifecycle rule active |
+| Bucket policy **rejects** non-TLS requests | **yes** | an HTTP request returned `AccessDenied` with an explicit deny from the resource policy |
+| Alarm stack plans cleanly | **yes** | 6 to add; region guard precondition passed |
+| Alarm stack applies | **yes** | 6 resources created |
+| Alarm reaches `ALARM` on real spend | **yes** | `19.35 > 0.5`, unforced |
+| EventBridge matches the alarm event | **yes** | `MatchedEvents` incremented |
+| EventBridge accepts the automation-definition ARN and `Input` | **yes** | after the IAM fix below |
+| JSONPath selector returns IDs `StopInstances` accepts | **yes** | `$.Reservations..Instances..InstanceId` worked — the prediction that it would fail was wrong |
+| **Tagged instance is stopped** | **yes** | `lizard-test-tagged` → `stopping` |
+| **Untagged instance is not stopped** | **yes** | `lizard-test-untagged` stayed `running`; the tag boundary holds |
+| Permissions in `permissions.md` are minimal and sufficient | **no — untested** | applied with `PowerUserAccess` plus full IAM, not these policies |
+| `PowerUserAccess` alone suffices | **n/a** | the permission set carried more than its name implied; predicting from the name was wrong |
+| Zero-match run fails as documented | not yet | never exercised — an instance was always tagged |
+
+### What a real apply caught that mocks did not
+
+**`ssm:StartAutomationExecution` authorises against three resource ARNs**, not
+one. The module granted only `automation-definition/<name>`; the call is also
+checked against `document/<name>` and `automation-execution/*`. Each fix revealed
+the next denial. Twenty unit tests stayed green throughout, because they asserted
+the policy contained the ARN form that had been assumed correct.
+
+**The first event fired mid-apply.** `MatchedEvents=1` with `Invocations=0`: the
+alarm entered `ALARM` as soon as it was created and emitted before `PutTargets`
+completed. The ordering hazard is not only "nothing tagged yet" but "target not
+yet wired". EventBridge fires on the *transition*, so re-testing needs an
+`OK` → `ALARM` cycle rather than setting `ALARM` again.

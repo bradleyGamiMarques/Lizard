@@ -216,6 +216,40 @@ run "tag_condition_follows_a_custom_tag" {
   }
 }
 
+# Regression test for a real AccessDenied observed against AWS.
+#
+# A runbook is addressable as both an automation-definition and a document. The
+# EventBridge target needs the former; IAM authorises StartAutomationExecution
+# against the latter. Granting only the automation-definition form fails at
+# runtime with an error naming a resource the policy never mentions — invisible
+# to every other assertion here, because they all encoded the same wrong
+# assumption.
+run "start_permission_covers_the_document_arn_form" {
+  command = apply
+
+  assert {
+    condition = anytrue([
+      for r in try(
+        [for s in jsondecode(one(awscc_iam_role.invocation.policies).policy_document)["Statement"] :
+        s if s["Sid"] == "StartThisAutomationOnly"][0]["Resource"],
+        []
+      ) : strcontains(r, ":document/lizard-stop-tagged-ec2")
+    ])
+    error_message = "ssm:StartAutomationExecution must be granted on the document ARN; IAM authorises against that form, not automation-definition."
+  }
+
+  assert {
+    condition = anytrue([
+      for r in try(
+        [for s in jsondecode(one(awscc_iam_role.invocation.policies).policy_document)["Statement"] :
+        s if s["Sid"] == "StartThisAutomationOnly"][0]["Resource"],
+        []
+      ) : strcontains(r, ":automation-definition/lizard-stop-tagged-ec2")
+    ])
+    error_message = "The automation-definition ARN form must also be granted, since that is what the EventBridge target names."
+  }
+}
+
 run "eventbridge_never_holds_the_destructive_permission" {
   command = apply
 

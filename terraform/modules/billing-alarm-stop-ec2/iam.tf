@@ -73,10 +73,29 @@ resource "awscc_iam_role" "invocation" {
       Version = "2012-10-17"
       Statement = [
         {
-          Sid      = "StartThisAutomationOnly"
-          Effect   = "Allow"
-          Action   = "ssm:StartAutomationExecution"
-          Resource = "${local.automation_definition_arn_base}:*"
+          # Three ARN forms, all required. Established by observing successive
+          # AccessDenied errors against a real account, not from the docs.
+          #
+          # A single ssm:StartAutomationExecution call is authorised against
+          # three distinct resources:
+          #
+          #   document/<name>              the runbook, as a document
+          #   automation-definition/<name> the runbook, as the EventBridge
+          #                                target names it
+          #   automation-execution/*       the execution being created
+          #
+          # Granting only the automation-definition form fails naming
+          # document/<name>. Adding that then fails naming
+          # automation-execution/*. The last cannot be narrowed: the execution
+          # ID does not exist until the call succeeds.
+          Sid    = "StartThisAutomationOnly"
+          Effect = "Allow"
+          Action = "ssm:StartAutomationExecution"
+          Resource = [
+            local.document_arn,
+            "${local.automation_definition_arn_base}:*",
+            local.automation_execution_arn_wildcard,
+          ]
         },
         {
           # StartAutomationExecution fails without this: EventBridge must be able
