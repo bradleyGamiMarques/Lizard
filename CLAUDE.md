@@ -174,12 +174,11 @@ Two consequences:
 
 ## Terraform
 
-Two stacks live under `terraform/`:
-
-| Stack | State | Purpose |
+| Directory | State | Purpose |
 | --- | --- | --- |
 | `bootstrap/` | local | Creates the S3 state bucket. Run once per AWS account. |
-| `billing-alarm/` | S3 backend | The alarm stack. |
+| `modules/billing-alarm-stop-ec2/` | — | The module. Alarm, runbook, rule, and two roles. |
+| `examples/stop-tagged-ec2/` | S3 backend | Worked deployment of that module. |
 
 `bootstrap` keeps local state on purpose: it cannot store state in the bucket it
 is creating. First-time setup:
@@ -189,7 +188,7 @@ terraform -chdir=terraform/bootstrap init
 terraform -chdir=terraform/bootstrap apply
 terraform -chdir=terraform/bootstrap output backend_hcl   # prints the values below
 
-cd terraform/billing-alarm
+cd terraform/examples/stop-tagged-ec2
 cp backend.hcl.example backend.hcl      # gitignored — fill in from the output above
 terraform init -backend-config=backend.hcl
 ```
@@ -345,12 +344,18 @@ Example: `dev/bradleyGamiMarques/chore/add-yarn-commitlint-tooling`
 
 ## Not yet done
 
-- **No billing alarm.** The backend and provider scaffolding exist, but the
-  CloudWatch alarm on `EstimatedCharges` and the stop/terminate action the README
-  promises do not.
-- **Bootstrap has never been applied.** No state bucket exists in any account
-  yet, so `terraform/billing-alarm` cannot be initialised against its backend.
+- **The zero-match case has never been observed.** "Fails when nothing carries
+  the tag" is inferred from the EC2 API rejecting an empty `InstanceIds` list,
+  not seen. Every test run had something tagged.
+- **The IAM policy in `docs/deploying.md` has never been used.** Every apply so
+  far ran with a broader role, so the policy is derived from the resource
+  definitions rather than proven minimal — or even proven complete.
 - **No `terraform plan` in CI.** Planning needs real AWS credentials, which means
   an OIDC role and a scoped IAM policy. Until that exists CI covers `fmt`,
-  `validate`, and `tflint` only, and the pull request template's **Blast radius**
-  section is filled in by hand rather than backed by a plan.
+  `validate`, `tflint`, and `test` only, and the pull request template's **Blast
+  radius** section is filled in by hand rather than backed by a plan.
+- **No continuous enforcement.** The example triggers on the alarm's state
+  transition alone, so it acts once per billing month; see `docs/deploying.md`.
+  A scheduled rule re-asserting the runbook would close that, and is not built.
+- **Nothing is deployed.** The stack was applied, verified end to end, and
+  destroyed. No Lizard resources exist in any account.

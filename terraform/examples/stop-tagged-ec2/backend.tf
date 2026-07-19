@@ -7,8 +7,8 @@
 # `terraform -chdir=../../bootstrap output backend_hcl` prints them.
 #
 # This state controls infrastructure that stops EC2 instances. Losing it means
-# losing the ability to change or destroy that infrastructure cleanly, so it does
-# not belong on a single laptop.
+# losing the ability to change or destroy that infrastructure cleanly
+
 terraform {
   backend "s3" {
     key          = "examples/stop-tagged-ec2/terraform.tfstate"

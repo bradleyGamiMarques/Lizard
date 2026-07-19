@@ -10,8 +10,9 @@ output "state_bucket_arn" {
 
 output "backend_hcl" {
   description = <<-EOT
-    Ready-to-paste contents for terraform/billing-alarm/backend.hcl, which is
-    gitignored because the bucket name is account-specific.
+    Ready-to-paste contents for a stack's backend.hcl — for example
+    terraform/examples/stop-tagged-ec2/backend.hcl. Gitignored, because the
+    bucket name is account-specific.
   EOT
   value       = <<-EOT
     bucket = "${aws_s3_bucket.state.bucket}"
