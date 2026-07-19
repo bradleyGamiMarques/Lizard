@@ -236,9 +236,10 @@ run, and none is visible to a mocked test.
 - **The `awscc` provider calls the Cloud Control API**, so a deploying principal
   needs `cloudcontrol:*` *as well as* the underlying service actions. Neither
   alone is sufficient.
-- **An IAM Identity Center permission set named `PowerUserAccess` may grant more
-  than that policy.** The role name reflects what the set was called, not what is
-  attached. Use `simulate-principal-policy` instead of inferring.
+- **An IAM Identity Center permission set grants whatever is attached to it, not
+  whatever its name suggests.** The assumed-role name reflects what the set was
+  called; additional managed and inline policies are invisible from it. Use
+  `simulate-principal-policy` rather than inferring from a name.
 
 Mocked unit tests prove wiring and typing only. The end-to-end chain has been
 verified once against a real account: a tagged instance stopped, an untagged one

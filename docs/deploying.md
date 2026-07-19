@@ -185,15 +185,6 @@ service actions are required.
 **Keep the IAM `Resource` scoped.** `iam:PutRolePolicy` on `*` would let anyone
 holding this policy grant themselves anything.
 
-
-```bash
-ARN=$(aws sts get-caller-identity --query Arn --output text)
-aws iam simulate-principal-policy \
-  --policy-source-arn "$(echo "$ARN" | sed 's#:sts:#:iam:#; s#assumed-role/#role/#; s#/[^/]*$##')" \
-  --action-names iam:CreateRole iam:PutRolePolicy iam:PassRole \
-  --query 'EvaluationResults[].[EvalActionName,EvalDecision]' --output text
-```
-
 ## Deploy
 
 **1. Create the state bucket** (once per account):
