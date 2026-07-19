@@ -73,11 +73,16 @@ a different way.
 
 ### 6. Verify, then clean up
 
+The repository has `delete_branch_on_merge` enabled, and it **does** fire for
+merges GitHub detects from an FF push, not only for ones performed by the merge
+button — confirmed on PR #3. The remote branch is removed for you, so only the
+local side needs cleaning up.
+
 ```bash
 gh pr view <n> --json state --jq .state     # want MERGED
 git switch main && git pull
 git branch -d <branch>                      # -d, not -D: refuses if not merged
-git push origin --delete <branch>           # only if it survived the merge
+git fetch --prune                           # drop the stale remote-tracking ref
 ```
 
 ### Recommended local config
@@ -201,7 +206,3 @@ Example: `dev/bradleyGamiMarques/chore/add-yarn-commitlint-tooling`
   so `fmt -check` / `validate` / `plan` should land with the first real config.
   That is also what turns the pull request template's **Blast radius** section
   from a prompt into an enforced check.
-- **Unverified:** whether `delete_branch_on_merge` fires for merges detected
-  from an FF push rather than performed by the merge button. If a branch
-  survives the next merge, delete it with
-  `git push origin --delete <branch>`.
