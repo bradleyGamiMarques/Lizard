@@ -54,15 +54,24 @@ elif [ "$has_tf_changes" = false ]; then
   exit 0
 fi
 
-# Every immediate subdirectory of terraform/ holding .tf files is a stack.
-# Discovering them beats a hardcoded list, which silently goes stale the first
-# time someone adds a stack and forgets to update this script.
+# Any directory under terraform/ holding .tf files is a stack, at any depth.
+#
+# This deliberately does not stop at the first level: modules live in
+# terraform/modules/<name>/ and examples in terraform/examples/<name>/, and an
+# earlier version of this script only looked one level down, so both were
+# skipped entirely and shipped unvalidated.
+#
+# .terraform/ is excluded because provider caches contain vendored .tf files
+# that are not ours to validate.
 stacks=()
 while IFS= read -r dir; do
   [ -z "$dir" ] && continue
-  compgen -G "${dir}/*.tf" >/dev/null || continue
   stacks+=("${dir#"${REPO_ROOT}"/}")
-done < <(find "${REPO_ROOT}/${TF_ROOT}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+done < <(
+  find "${REPO_ROOT}/${TF_ROOT}" -type f -name '*.tf' -not -path '*/.terraform/*' 2>/dev/null \
+    | while IFS= read -r f; do dirname "$f"; done \
+    | sort -u
+)
 
 if [ "${#stacks[@]}" -eq 0 ]; then
   echo "No Terraform stacks found under ${TF_ROOT}/. Skipping terraform validate.✅"

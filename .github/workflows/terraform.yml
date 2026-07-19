@@ -23,6 +23,44 @@ env:
   TERRAFORM_VERSION: '1.15.8'
 
 jobs:
+  # The validate and test matrices are discovered rather than hardcoded. A fixed
+  # list silently stops covering new code: an earlier version of this workflow
+  # listed only the two root stacks, so modules and examples were never checked
+  # at all.
+  discover:
+    name: discover
+    runs-on: ubuntu-latest
+    outputs:
+      stacks: ${{ steps.find.outputs.stacks }}
+      test_dirs: ${{ steps.find.outputs.test_dirs }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - name: Find Terraform directories
+        id: find
+        run: |
+          set -euo pipefail
+
+          # Every directory holding .tf files, at any depth. .terraform/ is
+          # excluded because provider caches vendor .tf files that are not ours.
+          stacks=$(
+            find terraform -type f -name '*.tf' -not -path '*/.terraform/*' \
+              -exec dirname {} \; | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))'
+          )
+
+          # Directories to run `terraform test` in: the module root, whether the
+          # .tftest.hcl files sit in tests/ or beside the configuration.
+          test_dirs=$(
+            find terraform -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' \
+              -exec dirname {} \; | sed 's#/tests$##' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))'
+          )
+
+          echo "stacks=$stacks" >> "$GITHUB_OUTPUT"
+          echo "test_dirs=$test_dirs" >> "$GITHUB_OUTPUT"
+
+          echo "Stacks to validate: $stacks"
+          echo "Directories to test: $test_dirs"
+
   fmt:
     name: fmt
     runs-on: ubuntu-latest
@@ -38,14 +76,13 @@ jobs:
         run: terraform fmt -check -recursive -diff terraform/
 
   validate:
-    name: validate (${{ matrix.stack }})
+    name: validate (${{ matrix.dir }})
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        stack:
-          - bootstrap
-          - billing-alarm
+        dir: ${{ fromJSON(needs.discover.outputs.stacks) }}
     steps:
       - uses: actions/checkout@v7.0.0
 
@@ -55,19 +92,45 @@ jobs:
           terraform_wrapper: false
 
       # -backend=false because the S3 backend needs a real bucket and AWS
-      # credentials, neither of which a pull request has. Validation covers
-      # syntax, provider schemas, and variable typing without either.
+      # credentials, neither of which a pull request has.
       #
       # -lockfile=readonly makes CI fail rather than silently rewrite
       # .terraform.lock.hcl. A missing linux_amd64 hash is a real problem worth
       # surfacing, not something to paper over on the runner.
       - name: terraform init
-        working-directory: terraform/${{ matrix.stack }}
+        working-directory: ${{ matrix.dir }}
         run: terraform init -backend=false -input=false -lockfile=readonly
 
       - name: terraform validate
-        working-directory: terraform/${{ matrix.stack }}
+        working-directory: ${{ matrix.dir }}
         run: terraform validate -no-color
+
+  test:
+    name: test (${{ matrix.dir }})
+    needs: discover
+    if: needs.discover.outputs.test_dirs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.discover.outputs.test_dirs) }}
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        working-directory: ${{ matrix.dir }}
+        run: terraform init -backend=false -input=false -lockfile=readonly
+
+      # The suites use mock_provider throughout, so this creates nothing and
+      # needs no AWS credentials.
+      - name: terraform test
+        working-directory: ${{ matrix.dir }}
+        run: terraform test -no-color
 
   tflint:
     name: tflint

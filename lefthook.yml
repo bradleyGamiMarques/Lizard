@@ -20,6 +20,9 @@ pre-push:
     - name: terraform-validate
       run: shell/hooks/terraform-validate.sh
 
+    - name: terraform-test
+      run: shell/hooks/terraform-test.sh
+
 commit-msg:
   jobs:
     - name: commitlint
