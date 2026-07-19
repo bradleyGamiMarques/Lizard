@@ -65,7 +65,35 @@ terraform -chdir=terraform/bootstrap output backend_hcl
 [permissions.md](permissions.md) — record any `AccessDenied` and the action it
 names.
 
-## Phase 2 — deploy the alarm and remediation
+## Phase 2 — launch two instances, tag one
+
+Do this **before** deploying, not after.
+
+If month-to-date spend for the service already exceeds your threshold — which it
+usually does, since the metric is a running monthly total — the alarm enters
+`ALARM` the moment it is created. Deploy first and that firing lands on an empty
+target set, so the automation fails with a zero-match error and your first result
+looks like a broken module when it is the documented behaviour.
+
+Launch two throwaway instances and tag only one. Tagging just one is the point:
+it checks the permission boundary as well as the action.
+
+```bash
+# Tagged — expected to be stopped
+aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
+  --region us-east-1 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=StoppableBy,Value=Lizard},{Key=Name,Value=lizard-test-tagged}]'
+
+# Untagged — expected to survive
+aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
+  --region us-east-1 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=lizard-test-untagged}]'
+```
+
+Wait for both to reach `running` — the runbook filters on that state, so a
+`pending` instance is skipped.
+
+## Phase 3 — deploy the alarm and remediation
 
 The example keeps state locally, which is fine for a test deployment.
 
@@ -90,31 +118,25 @@ terraform apply -var 'threshold_usd=0.50'
   `INSUFFICIENT_DATA` here means billing data is not flowing — go back to
   Phase 0. If month-to-date EC2 spend already exceeds $0.50, expect `ALARM`.
 
-## Phase 3 — two instances, one tagged
-
-This is the test that matters, because it checks the boundary as well as the
-action. Launch two throwaway instances and tag only one.
-
-```bash
-# Tagged — expected to be stopped
-aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
-  --region us-east-1 \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=StoppableBy,Value=Lizard},{Key=Name,Value=lizard-test-tagged}]'
-
-# Untagged — expected to survive
-aws ec2 run-instances --image-id ami-xxxxxxxx --instance-type t3.micro \
-  --region us-east-1 \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=lizard-test-untagged}]'
-```
-
-Wait for both to reach `running` — the runbook filters on that state, so a
-`pending` instance is skipped.
-
 ## Phase 4 — force the alarm
 
-Do not wait for real spend. Forcing the state emits a genuine
-`CloudWatch Alarm State Change` event, so EventBridge and SSM behave exactly as
-they would in production.
+If the alarm already fired on deployment, Phase 3 has told you most of what
+Phase 4 would. Force it anyway: `set-alarm-state` is repeatable and gives you a
+clean run to observe from the start.
+
+Forcing the state emits a genuine `CloudWatch Alarm State Change` event, so
+EventBridge and SSM behave exactly as they would in production.
+
+Note that EventBridge fires on the *transition* into `ALARM`. An alarm already
+sitting in `ALARM` will not re-fire, so set it to `OK` first if you need a second
+run:
+
+```bash
+aws cloudwatch set-alarm-state \
+  --alarm-name "$(terraform output -raw alarm_name)" \
+  --state-value OK --state-reason "Reset before re-test" \
+  --region us-east-1
+```
 
 ```bash
 aws cloudwatch set-alarm-state \
