@@ -7,6 +7,19 @@ colors:
   red: '#FE4450'
   yellow: '#FEDE5D'
 
+pre-commit:
+  jobs:
+    - name: terraform-fmt
+      run: shell/hooks/terraform-fmt.sh
+
+    - name: tflint
+      run: shell/hooks/tflint.sh
+
+pre-push:
+  jobs:
+    - name: terraform-validate
+      run: shell/hooks/terraform-validate.sh
+
 commit-msg:
   jobs:
     - name: commitlint

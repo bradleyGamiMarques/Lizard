@@ -1,0 +1,86 @@
+name: Terraform
+
+# The lefthook pre-commit and pre-push hooks run these same checks locally, but
+# `git commit --no-verify` and `git push --no-verify` bypass them. This workflow
+# is the enforcement point.
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - '.tflint.hcl'
+      - '.github/workflows/terraform.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Pinned rather than floating: a Terraform upgrade should be a visible commit,
+  # not a silent change in what CI enforces.
+  TERRAFORM_VERSION: '1.15.8'
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff terraform/
+
+  validate:
+    name: validate (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        stack:
+          - bootstrap
+          - billing-alarm
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      # -backend=false because the S3 backend needs a real bucket and AWS
+      # credentials, neither of which a pull request has. Validation covers
+      # syntax, provider schemas, and variable typing without either.
+      #
+      # -lockfile=readonly makes CI fail rather than silently rewrite
+      # .terraform.lock.hcl. A missing linux_amd64 hash is a real problem worth
+      # surfacing, not something to paper over on the runner.
+      - name: terraform init
+        working-directory: terraform/${{ matrix.stack }}
+        run: terraform init -backend=false -input=false -lockfile=readonly
+
+      - name: terraform validate
+        working-directory: terraform/${{ matrix.stack }}
+        run: terraform validate -no-color
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: terraform-linters/setup-tflint@v6.3.0
+        with:
+          tflint_version: v0.64.0
+
+      - name: tflint --init
+        run: tflint --init
+
+      - name: tflint
+        run: tflint --recursive --chdir=terraform --no-color
