@@ -201,20 +201,42 @@ State locking uses the S3 backend's `use_lockfile`, which locks via S3
 conditional writes and requires Terraform 1.10 or newer. There is no DynamoDB
 lock table to create or pay for.
 
-The alarm itself must live in **us-east-1**. AWS publishes the `AWS/Billing`
-CloudWatch namespace only in that region, regardless of where the resources it
-acts on are.
+User-facing deployment instructions live in [docs/deploying.md](docs/deploying.md).
 
-Mocked unit tests prove wiring and typing only. The end-to-end procedure for
-checking that the chain actually works against a real account — and the table
-recording which claims are still unverified — is
-[docs/verifying.md](docs/verifying.md).
+### AWS facts this repository was built on
 
-Deploy permissions are documented in [docs/permissions.md](docs/permissions.md).
-The trap there is the `awscc` provider: it calls the Cloud Control API, so a
-principal needs `cloudcontrol:*` **as well as** the underlying service actions.
-A policy granting only `cloudwatch:PutMetricAlarm` fails, and so does one
-granting only `cloudcontrol:CreateResource`.
+Established by observation against a real account. Each cost at least one failed
+run, and none is visible to a mocked test.
+
+- **`AWS/Billing` exists only in us-east-1**, is published only in **USD**, and
+  refreshes roughly every **six hours**. Hence `Maximum` over a period of at
+  least 21600s, and a plan-time guard on the region — an alarm built elsewhere
+  never receives a datapoint and silently never fires.
+- **Granularity stops at `ServiceName`.** No instance-level attribution exists in
+  this signal, which is why remediation targets a tag rather than a culprit.
+- **`ssm:StartAutomationExecution` authorises against three resource ARNs**:
+  `document/<name>`, `automation-definition/<name>`, and
+  `automation-execution/*`. Granting one produces `AccessDenied` naming a
+  resource the policy never mentioned, and fixing that reveals the next. The
+  execution ARN cannot be narrowed — the ID does not exist until the call
+  succeeds.
+- **An EventBridge target's `Input` populates document parameters only.** SSM's
+  `Targets`, `TargetParameterName`, and `TargetLocations` are top-level
+  `StartAutomationExecution` arguments and cannot be reached that way, which is
+  why tag targeting needs a custom runbook rather than `AWS-StopEC2Instance`.
+- **EventBridge fires on the transition into `ALARM`**, not on the state. An
+  alarm already in `ALARM` will not re-fire; re-testing needs `OK` → `ALARM`.
+- **The `awscc` provider calls the Cloud Control API**, so a deploying principal
+  needs `cloudcontrol:*` *as well as* the underlying service actions. Neither
+  alone is sufficient.
+- **An IAM Identity Center permission set named `PowerUserAccess` may grant more
+  than that policy.** The role name reflects what the set was called, not what is
+  attached. Use `simulate-principal-policy` instead of inferring.
+
+Mocked unit tests prove wiring and typing only. The end-to-end chain has been
+verified once against a real account: a tagged instance stopped, an untagged one
+did not. The unverified case is the zero-match run, where nothing carries the
+tag.
 
 ## Tooling
 

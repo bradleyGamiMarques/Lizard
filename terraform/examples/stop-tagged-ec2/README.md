@@ -3,86 +3,32 @@
 Watches EC2 estimated charges. When they cross the threshold, every **running**
 EC2 instance tagged `StoppableBy=Lizard` is stopped.
 
-## What this does and does not do
-
-**It is a kill switch with a blast radius you declare in advance.**
-
-A billing alarm reports that a *service* went over. It carries no instance
-identity, so nothing here can find the instance responsible for the spend. You
-decide beforehand which instances are expendable, by tagging them, and the alarm
-pulls that lever.
-
-Consequences worth understanding before you apply this:
-
-- An instance that is burning money but is **not** tagged will not be stopped.
-  Spend keeps climbing while the alarm sits in ALARM, already fired.
-- Every tagged instance is stopped, not just the expensive one.
-- Instances are **stopped, never terminated**. EBS-backed volumes persist; data
-  on instance store volumes does not survive a stop.
-
-## Prerequisites
-
-1. **Billing alerts must be enabled** in the payer account, under Billing and
-   Cost Management → Billing Preferences → *Receive CloudWatch Billing Alerts*.
-   Without this AWS publishes no `EstimatedCharges` data at all and the alarm
-   sits in `INSUFFICIENT_DATA` forever. It takes about 15 minutes to start
-   flowing after you enable it.
-2. **us-east-1.** AWS publishes `AWS/Billing` only there. The module fails the
-   plan elsewhere rather than creating an alarm that can never fire.
-3. **Deploy permissions.** See [docs/permissions.md](../../../docs/permissions.md).
-   Note that `awscc` resources need `cloudcontrol:*` actions *in addition to* the
-   underlying service permissions — granting only `cloudwatch:PutMetricAlarm` is
-   not enough.
-
-## Usage
+Full instructions — prerequisites, IAM policy, verification — are in
+[docs/deploying.md](../../../docs/deploying.md).
 
 ```bash
-terraform init
-terraform plan -var 'threshold_usd=50'
+cp backend.hcl.example backend.hcl     # from `terraform -chdir=../../bootstrap output backend_hcl`
+terraform init -backend-config=backend.hcl
 terraform apply -var 'threshold_usd=50'
 ```
 
-Then tag the instances you are willing to lose:
+## Things worth knowing
 
-```bash
-aws ec2 create-tags \
-  --resources i-0123456789abcdef0 \
-  --tags Key=StoppableBy,Value=Lizard
-```
+**Tag instances before applying.** If month-to-date spend already exceeds the
+threshold, the alarm fires as soon as it is created.
 
-## Verifying it works
+**Only tagged instances stop, and all of them do.** Lizard cannot identify which
+instance caused the spend. The tag is the blast radius, enforced by an IAM
+condition on `ec2:StopInstances` rather than only by the runbook.
 
-Do not wait for a real bill. Force the alarm state:
+**If nothing carries the tag, the automation fails.** `StopInstances` rejects an
+empty list. That is deliberate: the alarm fired and Lizard had nothing it was
+permitted to stop, which is worth surfacing rather than reporting as success.
 
-```bash
-aws cloudwatch set-alarm-state \
-  --alarm-name "$(terraform output -raw alarm_name)" \
-  --state-value ALARM \
-  --state-reason "Testing Lizard remediation"
-```
+**us-east-1 only.** AWS publishes billing metrics nowhere else, and the module
+fails the plan rather than creating an alarm that can never fire.
 
-That emits a genuine state-change event, so EventBridge and the automation run
-exactly as they would in production. Watch the result under Systems Manager →
-Automation. The alarm returns to its real state at the next evaluation.
+## Variables
 
-Use a disposable instance for this. It really does stop it.
-
-## If no instance carries the tag
-
-The automation **fails**, with `StopInstances` rejecting an empty instance list.
-
-That is deliberate. It means the alarm fired while Lizard had nothing it was
-permitted to stop, which is worth surfacing rather than reporting as a
-successful remediation.
-
-## Why the tag is enforced twice
-
-The runbook filters on the tag, and the automation role's `ec2:StopInstances`
-grant is *conditioned* on the same tag:
-
-```json
-"Condition": { "StringEquals": { "ec2:ResourceTag/StoppableBy": "Lizard" } }
-```
-
-The IAM condition is the real boundary. Even a buggy or replaced runbook cannot
-stop an untagged instance, because the role has no permission to.
+Set `service_name = null` to watch total account spend instead of EC2 alone.
+Other defaults are in [`../../modules/billing-alarm-stop-ec2/variables.tf`](../../modules/billing-alarm-stop-ec2/variables.tf).
